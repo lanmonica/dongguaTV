@@ -3703,6 +3703,8 @@
                     if (confirm('确定要清除所有观看历史吗？')) {
                         this.watchHistory = [];
                         localStorage.removeItem('donggua_watch_history');
+                        // 立即同步到服务器
+                        this.pushHistoryToServer(true);
                         console.log('[观看历史] 已清除');
                     }
                 },
@@ -3729,6 +3731,8 @@
                     if (index >= 0 && index < this.watchHistory.length) {
                         const removed = this.watchHistory.splice(index, 1);
                         this.saveWatchHistoryToStorage();
+                        // 立即同步到服务器
+                        this.pushHistoryToServer(true);
                         this.$nextTick(() => this.updateHistoryScrollNeeded());
                         console.log('[观看历史] 已删除:', removed[0]?.name);
                     }
