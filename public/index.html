@@ -301,6 +301,11 @@
             background: rgba(229, 9, 20, 0.4) !important;
         }
 
+        /* 隐藏关于作者及版本号 (通常是最后两项) */
+        .dplayer-menu .dplayer-menu-item:nth-last-child(-n+2) {
+            display: none !important;
+        }
+
         /* 11. 时间显示美化 */
         .dplayer-ptime,
         .dplayer-dtime {
@@ -3295,6 +3300,17 @@
                     }, 150);
                 }, { passive: true });
 
+                // 修复：点击任意地方关闭 DPlayer 右键菜单
+                document.addEventListener('click', (e) => {
+                    const menu = document.querySelector('.dplayer-menu');
+                    if (menu && menu.classList.contains('dplayer-menu-show')) {
+                        // 如果点击的不是菜单内部，则关闭菜单
+                        if (!menu.contains(e.target)) {
+                            menu.classList.remove('dplayer-menu-show');
+                        }
+                    }
+                });
+
                 // Store reference to app instance for external access
                 window.vueApp = this;
 
@@ -5094,11 +5110,9 @@
 
                                     getKey() {
                                         const vodName = this.vue.currentGroup?.name || 'default';
-                                        // 简单处理 key，防止特殊字符
                                         const safeName = vodName.replace(/[^a-zA-Z0-9\u4e00-\u9fa5]/g, '_');
                                         return `skip_config_${safeName}`;
                                     },
-
                                     load() {
                                         try {
                                             const saved = localStorage.getItem(this.getKey());
@@ -5109,33 +5123,80 @@
                                         this.hasSkippedOutro = false;
                                         this.updateUI();
                                     },
-
                                     save() {
                                         localStorage.setItem(this.getKey(), JSON.stringify(this.config));
                                         this.updateUI();
                                     },
-
                                     formatTime(seconds) {
                                         if (!seconds) return '点击设定';
                                         const m = Math.floor(seconds / 60);
                                         const s = Math.floor(seconds % 60);
                                         return `${m}:${s.toString().padStart(2, '0')}`;
                                     },
-
+                                    setIntro() {
+                                        if (!dp.video) return;
+                                        const time = Math.floor(dp.video.currentTime);
+                                        if (dp.video.duration && time > dp.video.duration * 0.5) {
+                                            dp.notice('片头时间不能超过视频时长的一半', 2000);
+                                            return;
+                                        }
+                                        this.config.intro = time;
+                                        this.config.enabled = true;
+                                        this.save();
+                                        dp.notice(`已设置片头截止点: ${this.formatTime(this.config.intro)}`);
+                                    },
+                                    setOutro() {
+                                        if (!dp.video) return;
+                                        const time = Math.floor(dp.video.currentTime);
+                                        if (dp.video.duration && time < dp.video.duration * 0.5) {
+                                            dp.notice('片尾起点通常在视频后半部分，请拖动进度条后再设置', 3000);
+                                            return;
+                                        }
+                                        if (this.config.intro > 0 && time <= this.config.intro) {
+                                            dp.notice('片尾时间必须晚于片头', 2000);
+                                            return;
+                                        }
+                                        this.config.outro = time;
+                                        this.config.enabled = true;
+                                        this.save();
+                                        dp.notice(`已设置片尾起点: ${this.formatTime(this.config.outro)}`);
+                                    },
+                                    clear() {
+                                        this.config = { intro: 0, outro: 0, enabled: false };
+                                        this.save();
+                                        dp.notice('已清除跳过配置');
+                                    },
+                                    updateUI() {
+                                        const group = document.querySelector('.dplayer-setting-skip-group');
+                                        if (!group) return;
+                                        const toggleBg = group.querySelector('.dplayer-toggle-icon');
+                                        const toggleKnob = group.querySelector('.toggle-knob');
+                                        if (toggleBg && toggleKnob) {
+                                            if (this.config.enabled) {
+                                                toggleBg.style.background = '#e50914';
+                                                toggleKnob.style.transform = 'translateX(18px)';
+                                            } else {
+                                                toggleBg.style.background = 'rgba(255,255,255,0.2)';
+                                                toggleKnob.style.transform = 'translateX(0)';
+                                            }
+                                        }
+                                        const introVal = group.querySelector('.intro-val');
+                                        if (introVal) introVal.textContent = this.formatTime(this.config.intro);
+                                        const outroVal = group.querySelector('.outro-val');
+                                        if (outroVal) outroVal.textContent = this.formatTime(this.config.outro);
+                                    },
                                     initUI() {
                                         const panel = document.querySelector('.dplayer-setting-origin-panel');
                                         if (!panel || panel.querySelector('.dplayer-setting-skip-group')) {
                                             if (panel) this.updateUI();
                                             return;
                                         }
-
                                         const html = `
                                             <div class="dplayer-setting-skip-group" style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 5px; padding-top: 5px;">
-                                                <div class="dplayer-setting-item dplayer-setting-skip-toggle" style="cursor: pointer;">
-                                                    <span class="dplayer-label">跳过片头片尾</span>
-                                                    <div class="dplayer-toggle">
-                                                        <input class="dplayer-toggle-setting-input" type="checkbox" ${this.config.enabled ? 'checked' : ''}>
-                                                        <div class="dplayer-toggle-setting-icon"></div>
+                                                <div class="dplayer-setting-item dplayer-setting-skip-toggle" style="display: flex; align-items: center; justify-content: space-between; cursor: pointer;">
+                                                    <span class="dplayer-label" style="white-space: nowrap;">跳过片头片尾</span>
+                                                    <div class="dplayer-toggle-icon" style="position: relative; width: 40px; height: 22px; background: ${this.config.enabled ? '#e50914' : 'rgba(255,255,255,0.2)'}; border-radius: 20px; transition: background 0.3s; flex-shrink: 0;">
+                                                        <div class="toggle-knob" style="position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; border-radius: 50%; transition: transform 0.3s; box-shadow: 0 1px 3px rgba(0,0,0,0.4); transform: translateX(${this.config.enabled ? '18px' : '0'});"></div>
                                                     </div>
                                                 </div>
                                                 <div class="dplayer-setting-item dplayer-setting-set-intro" style="cursor: pointer; justify-content: space-between;">
@@ -5147,110 +5208,31 @@
                                                     <span class="dplayer-value outro-val" style="opacity: 0.8;">${this.formatTime(this.config.outro)}</span>
                                                 </div>
                                                  <div class="dplayer-setting-item dplayer-setting-del-config" style="cursor: pointer; color: #888; font-size: 12px; height: 32px; display: flex; align-items: center; padding: 0 10px; margin-top: 0;">
-                                                    <i class="fas fa-trash-alt" style="margin-right:8px;"></i> 清除配置
+                                                    <i class="fas fa-trash-alt" style="margin-right:8px;"></i> 清除跳过配置
                                                 </div>
                                             </div>
                                         `;
                                         panel.insertAdjacentHTML('beforeend', html);
-
-                                        // 绑定事件
                                         const group = panel.querySelector('.dplayer-setting-skip-group');
-
-                                        // Toggle Logic
-                                        const toggleRow = group.querySelector('.dplayer-setting-skip-toggle');
-                                        const toggleInput = toggleRow.querySelector('input');
-
-                                        // Change event (Actual logic)
-                                        toggleInput.addEventListener('change', (e) => {
-                                            this.config.enabled = e.target.checked;
+                                        group.querySelector('.dplayer-setting-skip-toggle').addEventListener('click', () => {
+                                            this.config.enabled = !this.config.enabled;
                                             this.save();
                                             dp.notice(this.config.enabled ? '已开启跳过功能' : '已关闭跳过功能');
                                         });
-
-                                        // Click row to toggle
-                                        toggleRow.addEventListener('click', (e) => {
-                                            // 允许点击整行触发
-                                            if (e.target !== toggleInput && !e.target.classList.contains('dplayer-toggle-setting-icon')) {
-                                                toggleInput.checked = !toggleInput.checked;
-                                                toggleInput.dispatchEvent(new Event('change'));
-                                            }
-                                        });
-
-                                        // Set Intro
-                                        group.querySelector('.dplayer-setting-set-intro').addEventListener('click', () => {
-                                            if (!dp.video) return;
-                                            const time = Math.floor(dp.video.currentTime);
-                                            // 片头限制：不能超过视频的一半
-                                            if (dp.video.duration && time > dp.video.duration * 0.5) {
-                                                dp.notice('片头时间不能超过视频时长的一半', 2000);
-                                                return;
-                                            }
-                                            this.config.intro = time;
-                                            this.config.enabled = true;
-                                            this.save();
-                                            dp.notice(`已设置片头截止点: ${this.formatTime(this.config.intro)}`);
-                                        });
-
-                                        // Set Outro
-                                        group.querySelector('.dplayer-setting-set-outro').addEventListener('click', () => {
-                                            if (!dp.video) return;
-                                            const time = Math.floor(dp.video.currentTime);
-                                            // 片尾限制：不能在视频前半部分，且必须大于片头
-                                            if (dp.video.duration && time < dp.video.duration * 0.5) {
-                                                dp.notice('片尾起点通常在视频后半部分，请拖动进度条后再设置', 3000);
-                                                return;
-                                            }
-                                            if (this.config.intro > 0 && time <= this.config.intro) {
-                                                dp.notice('片尾时间必须晚于片头', 2000);
-                                                return;
-                                            }
-
-                                            this.config.outro = time;
-                                            this.config.enabled = true;
-                                            this.save();
-                                            dp.notice(`已设置片尾起点: ${this.formatTime(this.config.outro)}`);
-                                        });
-
-                                        // Delete Config
-                                        group.querySelector('.dplayer-setting-del-config').addEventListener('click', () => {
-                                            this.config = { intro: 0, outro: 0, enabled: false };
-                                            this.save();
-                                            dp.notice('已删除跳过配置');
-                                        });
+                                        group.querySelector('.dplayer-setting-set-intro').addEventListener('click', () => this.setIntro());
+                                        group.querySelector('.dplayer-setting-set-outro').addEventListener('click', () => this.setOutro());
+                                        group.querySelector('.dplayer-setting-del-config').addEventListener('click', () => this.clear());
                                     },
-
-                                    updateUI() {
-                                        const group = document.querySelector('.dplayer-setting-skip-group');
-                                        if (!group) return;
-
-                                        const toggle = group.querySelector('.dplayer-setting-skip-toggle input');
-                                        if (toggle) toggle.checked = this.config.enabled;
-
-                                        const introVal = group.querySelector('.intro-val');
-                                        if (introVal) introVal.textContent = this.formatTime(this.config.intro);
-
-                                        const outroVal = group.querySelector('.outro-val');
-                                        if (outroVal) outroVal.textContent = this.formatTime(this.config.outro);
-                                    },
-
                                     check(time) {
                                         if (!this.config.enabled) return;
-
-                                        // Intro (仅在开始播放的前5分钟内生效，且未跳过过)
                                         if (this.config.intro > 0 && time < this.config.intro && !this.hasSkippedIntro) {
-                                            // 安全检查：如果当前时间离片头太远（比如手动 seek 回去的），可能不该跳？
-                                            // 这里简化逻辑：只要小于 intro 且没跳过，就跳
                                             dp.seek(this.config.intro);
                                             dp.notice('已跳过片头');
                                             this.hasSkippedIntro = true;
                                         }
-
-                                        // Outro
                                         if (this.config.outro > 0 && time > this.config.outro && !this.hasSkippedOutro) {
                                             dp.notice('已跳过片尾');
                                             this.hasSkippedOutro = true;
-                                            // 触发 ended 事件，Vue 会捕获并更新历史记录，但需要手动触发自动下一集逻辑（如果 App 有的话）
-                                            // 这里直接触发 ended，DPlayer 会认为播放结束
                                             if (dp.events) dp.events.trigger('ended');
                                         }
                                     }
